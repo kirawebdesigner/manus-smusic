@@ -3,6 +3,7 @@ package com.smusic.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -55,6 +56,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -78,6 +80,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import androidx.compose.runtime.LaunchedEffect
 import com.smusic.app.data.AnalysisResult
 import com.smusic.app.data.DownloadState
 import com.smusic.app.data.MediaFormat
@@ -91,10 +98,13 @@ private val Muted = Color(0xFF9A9894)
 private val Accent = Color(0xFFD7F26A)
 
 class MainActivity : ComponentActivity() {
+    private lateinit var player: ExoPlayer
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { SmusicTheme { SmusicApp() } }
+        player = ExoPlayer.Builder(this).build()
+        setContent { SmusicTheme { SmusicApp(player) } }
     }
+    override fun onDestroy() { player.release(); super.onDestroy() }
 }
 
 @Composable
@@ -103,19 +113,19 @@ private fun SmusicTheme(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SmusicApp(vm: SmusicViewModel = viewModel()) {
+private fun SmusicApp(player: ExoPlayer, vm: SmusicViewModel = viewModel()) {
     var tab by remember { mutableIntStateOf(0) }
-    var showPlayer by remember { mutableStateOf(false) }
+    var playingMedia by remember { mutableStateOf<MediaItem?>(null) }
     val library by vm.library.collectAsState()
     val analysis by vm.analysis.collectAsState()
     val download by vm.download.collectAsState()
     Scaffold(containerColor = Canvas, bottomBar = { BottomBar(tab) { tab = it } }) { padding ->
-        AnimatedContent(targetState = if (showPlayer) 4 else tab, modifier = Modifier.padding(padding), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { screen ->
+        AnimatedContent(targetState = if (playingMedia != null) 4 else tab, modifier = Modifier.padding(padding), transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { screen ->
             when (screen) {
-                0 -> HomeScreen(vm, library, analysis, download, onOpenPlayer = { showPlayer = true })
-                1 -> LibraryScreen(library, onOpenPlayer = { showPlayer = true })
+                0 -> HomeScreen(vm, library, analysis, download, onOpenPlayer = { playingMedia = it })
+                1 -> LibraryScreen(library, onOpenPlayer = { playingMedia = it })
                 2 -> SettingsScreen()
-                else -> PlayerScreen(library.firstOrNull(), onBack = { showPlayer = false })
+                else -> PlayerScreen(playingMedia, player, onBack = { playingMedia = null })
             }
         }
     }
@@ -131,7 +141,7 @@ private fun BottomBar(tab: Int, onTab: (Int) -> Unit) {
 }
 
 @Composable
-private fun HomeScreen(vm: SmusicViewModel, library: List<MediaItem>, analysis: AnalysisResult?, download: com.smusic.app.data.DownloadTask?, onOpenPlayer: () -> Unit) {
+private fun HomeScreen(vm: SmusicViewModel, library: List<MediaItem>, analysis: AnalysisResult?, download: com.smusic.app.data.DownloadTask?, onOpenPlayer: (MediaItem) -> Unit) {
     val url by vm.url.collectAsState()
     val busy by vm.busy.collectAsState()
     val clipboard = LocalClipboardManager.current
@@ -152,7 +162,7 @@ private fun HomeScreen(vm: SmusicViewModel, library: List<MediaItem>, analysis: 
         if (analysis != null) item { AnalysisCard(analysis, vm, download) }
         if (library.isNotEmpty()) item { SectionHeader("RECENTLY SAVED", "See library") }
         if (library.isEmpty()) item { EmptyState() }
-        items(library.take(3), key = { it.id }) { media -> MediaRow(media, onClick = onOpenPlayer) }
+        items(library.take(3), key = { it.id }) { media -> MediaRow(media, onClick = { onOpenPlayer(media) }) }
     }
 }
 
@@ -174,9 +184,29 @@ private fun AnalysisCard(result: AnalysisResult, vm: SmusicViewModel, download: 
 @Composable private fun EmptyState() { Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(22.dp)) { Column(Modifier.fillMaxWidth().padding(26.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.LibraryMusic, null, tint = Color(0xFF6D6D73), modifier = Modifier.size(32.dp)); Spacer(Modifier.height(10.dp)); Text("Your library is quiet", fontWeight = FontWeight.SemiBold); Text("Analyze a link above and your saved media will appear here.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 5.dp)) } } }
 @Composable private fun MediaRow(media: MediaItem, onClick: () -> Unit) { Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(48.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFF292B2D)), contentAlignment = Alignment.Center) { Text(if (media.kind == MediaKind.AUDIO) "♪" else "▶", color = Accent, fontSize = 22.sp) }; Spacer(Modifier.width(13.dp)); Column(Modifier.weight(1f)) { Text(media.title, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis); Text("${media.creator} · ${media.fileSize}", color = Muted, fontSize = 12.sp) }; Icon(Icons.Default.MoreHoriz, null, tint = Muted) } }
 
-@Composable private fun LibraryScreen(library: List<MediaItem>, onOpenPlayer: () -> Unit) { LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) { item { Text("Library", fontSize = 32.sp, fontWeight = FontWeight.SemiBold); Text("Everything you chose to keep.", color = Muted) }; item { TextField(value = "", onValueChange = {}, modifier = Modifier.fillMaxWidth(), enabled = false, placeholder = { Text("Search your library", color = Muted) }, leadingIcon = { Icon(Icons.Default.Search, null, tint = Muted) }, shape = RoundedCornerShape(16.dp), colors = TextFieldDefaults.colors(disabledContainerColor = Panel, disabledIndicatorColor = Color.Transparent)) }; if (library.isEmpty()) item { EmptyState() }; items(library, key = { it.id }) { MediaRow(it, onOpenPlayer) } } }
+@Composable private fun LibraryScreen(library: List<MediaItem>, onOpenPlayer: (MediaItem) -> Unit) { LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) { item { Text("Library", fontSize = 32.sp, fontWeight = FontWeight.SemiBold); Text("Everything you chose to keep.", color = Muted) }; item { TextField(value = "", onValueChange = {}, modifier = Modifier.fillMaxWidth(), enabled = false, placeholder = { Text("Search your library", color = Muted) }, leadingIcon = { Icon(Icons.Default.Search, null, tint = Muted) }, shape = RoundedCornerShape(16.dp), colors = TextFieldDefaults.colors(disabledContainerColor = Panel, disabledIndicatorColor = Color.Transparent)) }; if (library.isEmpty()) item { EmptyState() }; items(library, key = { it.id }) { media -> MediaRow(media) { onOpenPlayer(media) } } } }
 
-@Composable private fun PlayerScreen(media: MediaItem?, onBack: () -> Unit) { Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }; Text("NOW PLAYING", color = Muted, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Icon(Icons.Default.MoreHoriz, null, tint = Muted) }; Spacer(Modifier.height(48.dp)); Box(Modifier.size(280.dp).clip(RoundedCornerShape(30.dp)).background(Brush.linearGradient(listOf(Color(0xFF3B4548), Color(0xFF171A1B)))), contentAlignment = Alignment.Center) { Text(if (media?.kind == MediaKind.AUDIO) "♪" else "▶", color = Accent, fontSize = 80.sp) }; Spacer(Modifier.height(28.dp)); Text(media?.title ?: "Nothing playing", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(media?.creator ?: "Choose something from your library", color = Muted); Spacer(Modifier.height(30.dp)); LinearProgress(0.38f); Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text("01:24", color = Muted, fontSize = 12.sp); Text(media?.duration ?: "--:--", color = Muted, fontSize = 12.sp) }; Spacer(Modifier.height(25.dp)); Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(28.dp)) { Icon(Icons.Default.Tune, null, tint = Muted); Icon(Icons.Default.Pause, null, tint = Ink, modifier = Modifier.size(52.dp).clip(CircleShape).background(Accent).padding(14.dp)); Icon(Icons.Default.LibraryMusic, null, tint = Muted) } } }
+@Composable private fun PlayerScreen(media: MediaItem?, player: ExoPlayer, onBack: () -> Unit) {
+    var isPlaying by remember { mutableStateOf(player.isPlaying) }
+    var position by remember { mutableStateOf(0L) }
+    var duration by remember { mutableStateOf(0L) }
+    LaunchedEffect(media) {
+        if (media?.localPath != null) {
+            player.setMediaItem(androidx.media3.common.MediaItem.fromUri(media.localPath))
+            player.prepare()
+            player.playWhenReady = false
+        }
+        while (isActive) { position = player.currentPosition.coerceAtLeast(0L); duration = player.duration.coerceAtLeast(0L); isPlaying = player.isPlaying; delay(250) }
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }; Text("NOW PLAYING", color = Muted, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); Icon(Icons.Default.MoreHoriz, null, tint = Muted) }
+        Spacer(Modifier.height(48.dp)); Box(Modifier.size(280.dp).clip(RoundedCornerShape(30.dp)).background(Brush.linearGradient(listOf(Color(0xFF3B4548), Color(0xFF171A1B)))), contentAlignment = Alignment.Center) { Text(if (media?.kind == MediaKind.AUDIO) "♪" else "▶", color = Accent, fontSize = 80.sp) }
+        Spacer(Modifier.height(28.dp)); Text(media?.title ?: "Nothing playing", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(media?.creator ?: "Choose something from your library", color = Muted)
+        Spacer(Modifier.height(24.dp)); Slider(value = if (duration > 0) position.toFloat() / duration else 0f, onValueChange = { if (duration > 0) player.seekTo((it * duration).toLong()) }, valueRange = 0f..1f, colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent)); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(formatMs(position), color = Muted, fontSize = 12.sp); Text(formatMs(duration), color = Muted, fontSize = 12.sp) }
+        Spacer(Modifier.height(25.dp)); Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(28.dp)) { Icon(Icons.Default.Tune, null, tint = Muted); Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Ink, modifier = Modifier.size(52.dp).clip(CircleShape).background(Accent).clickable { if (player.isPlaying) player.pause() else player.play(); isPlaying = player.isPlaying }.padding(14.dp)); Icon(Icons.Default.LibraryMusic, null, tint = Muted) }
+    }
+}
+private fun formatMs(value: Long): String { val seconds = value / 1000; return "%02d:%02d".format(seconds / 60, seconds % 60) }
 
 @Composable private fun SettingsScreen() { LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) { item { Text("Settings", fontSize = 32.sp, fontWeight = FontWeight.SemiBold); Text("Quiet control over your listening space.", color = Muted) }; item { SettingSection("DOWNLOADS", listOf("Default audio quality" to "Original", "Default video quality" to "1080p", "Wi-Fi only" to "On", "Download location" to "Smusic folder")) }; item { SettingSection("APP", listOf("Theme" to "Dark", "Notifications" to "Enabled", "Open-source licenses" to "View")) }; item { Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(20.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Info, null, tint = Accent); Spacer(Modifier.width(14.dp)); Column { Text("About Smusic", fontWeight = FontWeight.SemiBold); Text("Version 0.1.0 · Built for offline listening", color = Muted, fontSize = 12.sp) } } } } } }
 @Composable private fun SettingSection(title: String, values: List<Pair<String, String>>) { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) { Text(title, color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp); Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(20.dp)) { Column { values.forEachIndexed { index, (label, value) -> Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) { Text(label, Modifier.weight(1f), fontSize = 14.sp); Text(value, color = Muted, fontSize = 13.sp) }; if (index < values.lastIndex) Divider(color = Color(0xFF27272B), modifier = Modifier.padding(horizontal = 18.dp)) } } } } }

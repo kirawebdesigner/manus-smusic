@@ -18,12 +18,17 @@ data class MediaItem(
     val kind: MediaKind,
     val url: String,
     val addedLabel: String = "Just now",
+    val localPath: String? = null,
+    val mimeType: String? = null,
+    val fileSizeBytes: Long = 0L,
+    val downloadDate: Long = System.currentTimeMillis(),
+    val state: DownloadState = DownloadState.IDLE,
 )
 
 data class MediaFormat(val label: String, val detail: String, val size: String, val kind: MediaKind)
 enum class MediaKind { AUDIO, VIDEO }
 
-enum class DownloadState { IDLE, DOWNLOADING, COMPLETE, FAILED }
+enum class DownloadState { IDLE, QUEUED, DOWNLOADING, PAUSED, COMPLETE, FAILED, CANCELLED }
 
 data class DownloadTask(val media: MediaItem, val format: MediaFormat, val progress: Float, val state: DownloadState)
 
