@@ -3,87 +3,138 @@ package com.smusic.app
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkInfo
-import com.smusic.app.data.AnalysisResult
-import com.smusic.app.data.DownloadState
-import com.smusic.app.data.DownloadTask
-import com.smusic.app.data.MediaFormat
-import com.smusic.app.data.MediaItem
-import com.smusic.app.data.MediaRepository
-import java.util.UUID
+import com.smusic.app.data.database.LibraryItem
+import com.smusic.app.domain.manager.DownloadManager
+import com.smusic.app.domain.model.AnalysisResult
+import com.smusic.app.domain.model.DownloadDestination
+import com.smusic.app.domain.model.DownloadJob
+import com.smusic.app.domain.model.MediaFormat
+import com.smusic.app.domain.model.MediaInfo
+import com.smusic.app.domain.model.StorageCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class SmusicViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = MediaRepository(application)
-    private val _library = MutableStateFlow(repository.all())
-    val library: StateFlow<List<MediaItem>> = _library.asStateFlow()
+
+    private val downloadManager = DownloadManager(application)
+
     private val _url = MutableStateFlow("")
     val url: StateFlow<String> = _url.asStateFlow()
-    private val _analysis = MutableStateFlow<AnalysisResult?>(null)
-    val analysis: StateFlow<AnalysisResult?> = _analysis.asStateFlow()
+
+    private val _isAnalyzing = MutableStateFlow(false)
+    val isAnalyzing: StateFlow<Boolean> = _isAnalyzing.asStateFlow()
+
+    private val _analysisResult = MutableStateFlow<AnalysisResult?>(null)
+    val analysisResult: StateFlow<AnalysisResult?> = _analysisResult.asStateFlow()
+
     private val _selectedFormat = MutableStateFlow<MediaFormat?>(null)
     val selectedFormat: StateFlow<MediaFormat?> = _selectedFormat.asStateFlow()
-    private val _download = MutableStateFlow<DownloadTask?>(null)
-    val download: StateFlow<DownloadTask?> = _download.asStateFlow()
-    private val _busy = MutableStateFlow(false)
-    val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
-    fun setUrl(value: String) { _url.value = value }
+    private val _selectedCategory = MutableStateFlow(StorageCategory.MUSIC)
+    val selectedCategory: StateFlow<StorageCategory> = _selectedCategory.asStateFlow()
 
-    fun analyze() {
-        viewModelScope.launch {
-            _busy.value = true
-            _analysis.value = repository.analyze(_url.value)
-            _selectedFormat.value = (_analysis.value as? AnalysisResult.Success)?.formats?.firstOrNull()
-            _busy.value = false
-        }
-    }
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    fun selectFormat(format: MediaFormat) { _selectedFormat.value = format }
+    val queue: StateFlow<List<DownloadJob>> = downloadManager.queueFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun download() {
-        val result = _analysis.value as? AnalysisResult.Success ?: return
-        val format = _selectedFormat.value ?: return
-        val existing = _library.value.firstOrNull { it.url == result.media.url && it.state == DownloadState.COMPLETE && it.localPath != null }
-        if (existing != null) {
-            _download.value = DownloadTask(existing, format, 1f, DownloadState.COMPLETE)
-            return
-        }
-        val workId = repository.enqueue(result.media, format)
-        _download.value = DownloadTask(result.media.copy(state = DownloadState.QUEUED), format, 0f, DownloadState.QUEUED)
-        if (workId != UUID(0L, 0L)) observeDownload(workId, result.media, format)
-    }
-
-    private fun observeDownload(workId: UUID, media: MediaItem, format: MediaFormat) {
-        viewModelScope.launch {
-            repository.work(workId).collect { info ->
-                if (info == null) return@collect
-                val downloaded = info.progress.getLong("downloaded", 0L)
-                val total = info.progress.getLong("total", 0L)
-                val state = when (info.state) {
-                    WorkInfo.State.ENQUEUED -> DownloadState.QUEUED
-                    WorkInfo.State.RUNNING -> DownloadState.DOWNLOADING
-                    WorkInfo.State.SUCCEEDED -> DownloadState.COMPLETE
-                    WorkInfo.State.CANCELLED -> DownloadState.CANCELLED
-                    WorkInfo.State.FAILED -> DownloadState.FAILED
-                    WorkInfo.State.BLOCKED -> DownloadState.PAUSED
-                }
-                val progress = when {
-                    total > 0 -> downloaded.toFloat() / total.toFloat()
-                    state == DownloadState.COMPLETE -> 1f
-                    else -> 0f
-                }
-                _download.value = DownloadTask(media, format, progress, state)
-                if (info.state.isFinished) _library.value = repository.all()
+    val library: StateFlow<List<LibraryItem>> = combine(
+        downloadManager.libraryFlow,
+        _searchQuery
+    ) { items, query ->
+        if (query.isBlank()) {
+            items
+        } else {
+            items.filter {
+                it.title.contains(query, ignoreCase = true) ||
+                        it.creator.contains(query, ignoreCase = true) ||
+                        it.album.contains(query, ignoreCase = true)
             }
         }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setUrl(value: String) {
+        _url.value = value
     }
 
-    fun refreshLibrary() { viewModelScope.launch(Dispatchers.IO) { _library.value = repository.all() } }
-    fun delete(item: MediaItem) { viewModelScope.launch(Dispatchers.IO) { repository.delete(item); _library.value = repository.all() } }
-    fun clearAnalysis() { _analysis.value = null; _download.value = null }
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun selectFormat(format: MediaFormat) {
+        _selectedFormat.value = format
+    }
+
+    fun selectCategory(category: StorageCategory) {
+        _selectedCategory.value = category
+    }
+
+    fun analyze() {
+        val currentUrl = _url.value.trim()
+        if (currentUrl.isBlank()) return
+
+        viewModelScope.launch {
+            _isAnalyzing.value = true
+            val result = downloadManager.analyze(currentUrl)
+            _analysisResult.value = result
+            if (result is AnalysisResult.Success) {
+                _selectedFormat.value = result.formats.firstOrNull()
+            } else {
+                _selectedFormat.value = null
+            }
+            _isAnalyzing.value = false
+        }
+    }
+
+    fun clearAnalysis() {
+        _analysisResult.value = null
+        _selectedFormat.value = null
+    }
+
+    fun enqueueDownload() {
+        val analysis = _analysisResult.value as? AnalysisResult.Success ?: return
+        val format = _selectedFormat.value ?: return
+
+        val destination = DownloadDestination(category = _selectedCategory.value)
+        downloadManager.enqueueDownload(
+            media = analysis.media,
+            format = format,
+            destination = destination
+        )
+    }
+
+    fun cancelJob(jobId: String) {
+        downloadManager.cancelJob(jobId)
+    }
+
+    fun retryJob(jobId: String) {
+        downloadManager.retryJob(jobId)
+    }
+
+    fun removeJob(jobId: String) {
+        downloadManager.removeJob(jobId)
+    }
+
+    fun clearCompletedJobs() {
+        downloadManager.clearCompleted()
+    }
+
+    fun toggleFavorite(itemId: String) {
+        downloadManager.toggleFavorite(itemId)
+    }
+
+    fun deleteLibraryItem(itemId: String) {
+        downloadManager.deleteLibraryItem(itemId)
+    }
+
+    fun refreshAll() {
+        downloadManager.refreshState()
+    }
 }
