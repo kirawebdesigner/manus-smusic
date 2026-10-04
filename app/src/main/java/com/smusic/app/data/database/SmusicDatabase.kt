@@ -28,61 +28,38 @@ data class LibraryItem(
     val mimeType: String? = null,
     val addedDate: Long = System.currentTimeMillis(),
     val isFavorite: Boolean = false,
-    val playlistName: String? = null
+    val playlistName: String? = null,
+    val lastPlayed: Long = 0L,
+    val playCount: Int = 0
 )
 
-class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db", null, 1) {
+/**
+ * SQLite-backed store for the download queue and the local library.
+ *
+ * Schema DDL and migrations live in [DatabaseSchema] so they can be verified
+ * by unit tests. WAL is enabled for safe concurrent access between WorkManager
+ * workers (writer) and the UI (reader).
+ */
+class SmusicDatabase(context: Context) :
+    SQLiteOpenHelper(context, DATABASE_NAME, null, DatabaseSchema.VERSION) {
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("""
-            CREATE TABLE IF NOT EXISTS download_jobs (
-                id TEXT PRIMARY KEY,
-                original_url TEXT NOT NULL,
-                title TEXT NOT NULL,
-                uploader TEXT NOT NULL,
-                thumbnail TEXT,
-                duration TEXT NOT NULL,
-                media_type TEXT NOT NULL,
-                format_id TEXT NOT NULL,
-                format_label TEXT NOT NULL,
-                container TEXT NOT NULL,
-                mime_type TEXT NOT NULL,
-                dest_category TEXT NOT NULL,
-                dest_subfolder TEXT,
-                state TEXT NOT NULL,
-                progress REAL NOT NULL DEFAULT 0.0,
-                speed_bytes INTEGER NOT NULL DEFAULT 0,
-                downloaded_bytes INTEGER NOT NULL DEFAULT 0,
-                total_bytes INTEGER NOT NULL DEFAULT 0,
-                local_path TEXT,
-                error_message TEXT,
-                retry_count INTEGER NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            )
-        """.trimIndent())
-
-        db.execSQL("""
-            CREATE TABLE IF NOT EXISTS library_media (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                creator TEXT NOT NULL,
-                album TEXT NOT NULL,
-                source TEXT NOT NULL,
-                duration_ms INTEGER NOT NULL DEFAULT 0,
-                file_size_bytes INTEGER NOT NULL DEFAULT 0,
-                readable_size TEXT NOT NULL,
-                media_type TEXT NOT NULL,
-                local_path TEXT NOT NULL UNIQUE,
-                mime_type TEXT,
-                added_date INTEGER NOT NULL,
-                is_favorite INTEGER NOT NULL DEFAULT 0,
-                playlist_name TEXT
-            )
-        """.trimIndent())
+        DatabaseSchema.createStatements.forEach { db.execSQL(it) }
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        DatabaseSchema.migrationStatements(oldVersion).forEach { statement ->
+            try {
+                db.execSQL(statement)
+            } catch (error: Exception) {
+                // Tolerate a column that already exists (e.g. interrupted upgrade);
+                // never wipe data to "fix" a migration.
+                if (error.message?.contains("duplicate column", ignoreCase = true) != true) {
+                    throw error
+                }
+            }
+        }
+    }
 
     // --- DOWNLOAD QUEUE OPERATIONS ---
 
@@ -107,10 +84,13 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
             put("downloaded_bytes", job.downloadedBytes)
             put("total_bytes", job.totalBytes)
             put("local_path", job.localPath)
+            put("temp_path", job.tempPath)
+            put("filename", job.filename)
             put("error_message", job.errorMessage)
             put("retry_count", job.retryCount)
             put("created_at", job.createdAt)
             put("updated_at", job.updatedAt)
+            put("completed_at", job.completedAt)
         }
         writableDatabase.insertWithOnConflict("download_jobs", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
@@ -123,7 +103,9 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
         downloadedBytes: Long? = null,
         totalBytes: Long? = null,
         localPath: String? = null,
-        error: String? = null
+        tempPath: String? = null,
+        error: String? = null,
+        completedAt: Long? = null
     ) {
         val values = ContentValues().apply {
             put("state", state.name)
@@ -133,7 +115,9 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
             downloadedBytes?.let { put("downloaded_bytes", it) }
             totalBytes?.let { put("total_bytes", it) }
             localPath?.let { put("local_path", it) }
+            tempPath?.let { put("temp_path", it) }
             error?.let { put("error_message", it) }
+            completedAt?.let { put("completed_at", it) }
         }
         writableDatabase.update("download_jobs", values, "id = ?", arrayOf(id))
     }
@@ -158,23 +142,21 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
         }
     }
 
-    fun getActiveJobs(): List<DownloadJob> {
-        val activeStates = arrayOf(JobState.DOWNLOADING.name, JobState.PROCESSING.name, JobState.WAITING.name)
-        val placeholders = activeStates.joinToString(",") { "?" }
+    fun getJobsInStates(vararg states: JobState): List<DownloadJob> {
+        val names = states.map { it.name }.toTypedArray()
+        val placeholders = names.joinToString(",") { "?" }
         return readableDatabase.query(
-            "download_jobs", null, "state IN ($placeholders)", activeStates, null, null, "created_at ASC"
+            "download_jobs", null, "state IN ($placeholders)", names, null, null, "created_at ASC"
         ).use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.toJob()) }
         }
     }
 
-    fun getQueuedJobs(): List<DownloadJob> {
-        return readableDatabase.query(
-            "download_jobs", null, "state = ?", arrayOf(JobState.QUEUED.name), null, null, "created_at ASC"
-        ).use { cursor ->
-            buildList { while (cursor.moveToNext()) add(cursor.toJob()) }
-        }
-    }
+    fun getActiveJobs(): List<DownloadJob> =
+        getJobsInStates(JobState.DOWNLOADING, JobState.PROCESSING, JobState.WAITING)
+
+    fun getQueuedJobs(): List<DownloadJob> =
+        getJobsInStates(JobState.QUEUED, JobState.ANALYZING)
 
     fun removeJob(id: String) {
         writableDatabase.delete("download_jobs", "id = ?", arrayOf(id))
@@ -189,13 +171,28 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
             put("state", JobState.QUEUED.name)
             put("error_message", null as String?)
             put("progress", 0f)
+            put("speed_bytes", 0L)
+            put("retry_count", 0)
+            put("completed_at", null as Long?)
             put("updated_at", System.currentTimeMillis())
         }
         writableDatabase.update("download_jobs", values, "id = ?", arrayOf(id))
     }
 
+    fun incrementRetryCount(id: String) {
+        writableDatabase.execSQL(
+            "UPDATE download_jobs SET retry_count = retry_count + 1, updated_at = ? WHERE id = ?",
+            arrayOf(System.currentTimeMillis(), id)
+        )
+    }
+
     // --- LIBRARY OPERATIONS ---
 
+    /**
+     * Inserts or updates a library row keyed by id. Conflicts on the unique
+     * [LibraryItem.localPath] are ignored so repeated scans can't duplicate
+     * records or reset user state (favorites, play counts).
+     */
     fun insertLibraryItem(item: LibraryItem) {
         val values = ContentValues().apply {
             put("id", item.id)
@@ -212,12 +209,13 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
             put("added_date", item.addedDate)
             put("is_favorite", if (item.isFavorite) 1 else 0)
             put("playlist_name", item.playlistName)
+            put("last_played", item.lastPlayed)
+            put("play_count", item.playCount)
         }
-        writableDatabase.insertWithOnConflict("library_media", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        writableDatabase.insertWithOnConflict("library_media", null, values, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
     fun getAllLibraryItems(): List<LibraryItem> {
-        cleanStaleRecords()
         return readableDatabase.query(
             "library_media", null, null, null, null, null, "added_date DESC"
         ).use { cursor ->
@@ -232,8 +230,9 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
     fun searchLibrary(query: String): List<LibraryItem> {
         val q = "%${query.trim()}%"
         return readableDatabase.query(
-            "library_media", null, "title LIKE ? OR creator LIKE ? OR album LIKE ?",
-            arrayOf(q, q, q), null, null, "title ASC"
+            "library_media", null,
+            "title LIKE ? OR creator LIKE ? OR album LIKE ? OR local_path LIKE ?",
+            arrayOf(q, q, q, q), null, null, "title ASC"
         ).use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.toLibraryItem()) }
         }
@@ -243,15 +242,25 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
         writableDatabase.execSQL("UPDATE library_media SET is_favorite = (1 - is_favorite) WHERE id = ?", arrayOf(id))
     }
 
+    fun recordPlay(id: String) {
+        writableDatabase.execSQL(
+            "UPDATE library_media SET play_count = play_count + 1, last_played = ? WHERE id = ?",
+            arrayOf(System.currentTimeMillis(), id)
+        )
+    }
+
     fun deleteLibraryItem(id: String) {
-        val item = readableDatabase.query("library_media", arrayOf("local_path"), "id = ?", arrayOf(id), null, null, null).use {
+        val item = readableDatabase.query(
+            "library_media", arrayOf("local_path"), "id = ?", arrayOf(id), null, null, null
+        ).use {
             if (it.moveToFirst()) it.getString(0) else null
         }
         item?.let { File(it).delete() }
         writableDatabase.delete("library_media", "id = ?", arrayOf(id))
     }
 
-    fun cleanStaleRecords() {
+    /** Removes rows whose files no longer exist on disk. Returns removed count. */
+    fun cleanStaleRecords(): Int {
         val toRemove = mutableListOf<String>()
         readableDatabase.query("library_media", arrayOf("id", "local_path"), null, null, null, null, null).use { cursor ->
             while (cursor.moveToNext()) {
@@ -266,6 +275,7 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
             val placeholders = toRemove.joinToString(",") { "?" }
             writableDatabase.delete("library_media", "id IN ($placeholders)", toRemove.toTypedArray())
         }
+        return toRemove.size
     }
 
     // --- CURSOR MAPPERS ---
@@ -294,7 +304,7 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
         )
         val destination = DownloadDestination(
             category = StorageCategory.valueOf(getString(getColumnIndexOrThrow("dest_category"))),
-            subFolder = getString(getColumnIndexOrThrow("dest_subfolder"))
+            subFolder = getStringOrNull(getColumnIndexOrThrow("dest_subfolder"))
         )
 
         return DownloadJob(
@@ -307,11 +317,14 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
             speedBytesPerSecond = getLong(getColumnIndexOrThrow("speed_bytes")),
             downloadedBytes = getLong(getColumnIndexOrThrow("downloaded_bytes")),
             totalBytes = getLong(getColumnIndexOrThrow("total_bytes")),
-            localPath = getString(getColumnIndexOrThrow("local_path")),
-            errorMessage = getString(getColumnIndexOrThrow("error_message")),
+            localPath = getStringOrNull(getColumnIndexOrThrow("local_path")),
+            tempPath = getStringOrNull(getColumnIndexOrThrow("temp_path")),
+            filename = getStringOrNull(getColumnIndexOrThrow("filename")),
+            errorMessage = getStringOrNull(getColumnIndexOrThrow("error_message")),
             retryCount = getInt(getColumnIndexOrThrow("retry_count")),
             createdAt = getLong(getColumnIndexOrThrow("created_at")),
-            updatedAt = getLong(getColumnIndexOrThrow("updated_at"))
+            updatedAt = getLong(getColumnIndexOrThrow("updated_at")),
+            completedAt = getLongOrNull(getColumnIndexOrThrow("completed_at"))
         )
     }
 
@@ -327,10 +340,22 @@ class SmusicDatabase(context: Context) : SQLiteOpenHelper(context, "smusic_v2.db
             readableSize = getString(getColumnIndexOrThrow("readable_size")),
             mediaType = MediaType.valueOf(getString(getColumnIndexOrThrow("media_type"))),
             localPath = getString(getColumnIndexOrThrow("local_path")),
-            mimeType = getString(getColumnIndexOrThrow("mime_type")),
+            mimeType = getStringOrNull(getColumnIndexOrThrow("mime_type")),
             addedDate = getLong(getColumnIndexOrThrow("added_date")),
             isFavorite = getInt(getColumnIndexOrThrow("is_favorite")) == 1,
-            playlistName = getString(getColumnIndexOrThrow("playlist_name"))
+            playlistName = getStringOrNull(getColumnIndexOrThrow("playlist_name")),
+            lastPlayed = getLong(getColumnIndexOrThrow("last_played")),
+            playCount = getInt(getColumnIndexOrThrow("play_count"))
         )
+    }
+
+    private fun Cursor.getStringOrNull(index: Int): String? =
+        if (isNull(index)) null else getString(index)
+
+    private fun Cursor.getLongOrNull(index: Int): Long? =
+        if (isNull(index)) null else getLong(index)
+
+    companion object {
+        const val DATABASE_NAME = "smusic_v2.db"
     }
 }

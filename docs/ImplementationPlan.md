@@ -26,7 +26,7 @@ This roadmap outlines the phased development and upgrade of Smusic from a basic 
 - [x] **P2.2 Resumable HTTP Download Engine:**
   - Build native `DownloadEngine` supporting `Range: bytes=X-` HTTP requests.
   - Implement redirect tracing across 301, 302, 307, and 308 response codes.
-  - Build real-time 1000ms sliding-window speed and ETA calculator.
+  - Build real-time ~250ms rolling-interval speed and ETA calculator.
   - Ensure zero fake/simulated progress.
 - [x] **P2.3 Media Processing Seam:**
   - Define `MediaProcessor` interface for post-processing (FFmpeg integration seam).
@@ -48,11 +48,22 @@ This roadmap outlines the phased development and upgrade of Smusic from a basic 
 - [x] **P4.1 Open-Source Licensing Compliance:**
   - Create `OPEN_SOURCE.md` confirming zero GPL code contamination from YTDLnis and clean-room implementation.
   - Ensure Apache-2.0 / MIT compatibility.
-- [ ] **P4.2 Build Verification & Cleanup:**
+- [x] **P4.2 Build Verification & Cleanup:**
   - Clean up obsolete v0.1.0 data classes to prevent compiler ambiguities.
-  - Verify Gradle configuration and version bump to `0.2.0`.
-  - Execute build tasks (`assembleDebug` or `compileDebugKotlin`).
+  - Verify Gradle configuration and version bump to `0.2.0` (`versionCode = 2`).
+  - Execute build tasks: `./gradlew test`, `./gradlew assembleDebug`, `./gradlew lint` — all green (71 unit tests, 0 lint errors).
 - [ ] **P4.3 Git Commit & GitHub Release:**
   - Stage all architecture improvements and docs.
   - Push branch to `origin/main`.
   - Create GitHub release `v0.2.0` with release notes and changelog.
+
+### Phase 5: v0.2.0 End-to-End Delivery (URL → Library → Player)
+- [x] **P5.1 Provider hardening:** categorized `ProviderError` taxonomy, HEAD probe with ranged-GET fallback, manual redirect tracing (loop/malformed/too-many), Content-Disposition/query filename derivation with traversal sanitization, honest single-format analysis.
+- [x] **P5.2 Storage layer:** `downloads/audio|video|other` layout, canonical-path containment checks, duplicate suffixing, `.part` cleanup, storage-usage accounting, orphan-file media scan.
+- [x] **P5.3 Schema v2:** `DatabaseSchema` with byte-for-byte v1 baseline + additive v1→v2 migrations (filename/temp/completed tracking, last_played/play_count), verified against a real SQLite driver.
+- [x] **P5.4 Download pipeline:** WorkManager persistent queue, foreground progress notification, concurrency limiter (1–3), transient/permanent error split, auto-retry, crash/interruption recovery, magic-byte extension enforcement, MediaScanner registration.
+- [x] **P5.5 Library UX:** sectioned Downloads screen (active/queued/completed/failed), library search over title/artist/album/playlist/filename, favorites, play counts, share via FileProvider, stale-row pruning.
+- [x] **P5.6 Playback:** `PlayerController` + Media3 `MediaSessionService`, full-screen player, mini player, persisted position/shuffle/repeat and resume-on-play.
+- [x] **P5.7 Settings:** destination, Wi-Fi-only, concurrency, auto-retry, playback defaults, storage usage and cleanup actions, about section.
+- [x] **P5.8 Test suite:** engine (12), provider probing (15), schema/migration (5), storage (8), library search (6), UI model (6), formatters (6), media sniffer (10), concurrency (3) — 71 tests via `./gradlew test`.
+- [ ] **P5.9 Release delivery:** commit via the Freebuff Changes panel, push, and publish the `v0.2.0` GitHub release (not part of this pass).

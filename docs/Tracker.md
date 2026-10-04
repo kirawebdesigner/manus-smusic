@@ -1,7 +1,7 @@
 # Task Board & Progress Tracker (Tracker) — Smusic v0.2.0
 
 ## 1. Current Sprint Focus
-**Objective:** Finalize Smusic v0.2.0 modular architecture release, prune deprecated v0.1.0 data classes, verify build, commit, push to GitHub, and create release `v0.2.0`.
+**Objective:** Smusic v0.2.0 end-to-end delivery complete: provider layer, storage, schema v2, download pipeline, library, and Media3 playback are implemented and verified (`test` / `assembleDebug` / `lint` all green, 71 unit tests). Remaining: push and the `v0.2.0` GitHub release.
 
 ---
 
@@ -9,41 +9,45 @@
 
 ### 2.1 Documentation & Architecture (8 MD Deliverables)
 - [x] 1. `PRD.md` — Product Requirement Document
-- [x] 2. `TechSpec.md` — Technical Specification Document
+- [x] 2. `TechSpec.md` — Technical Specification Document (updated: storage layout, ProviderError taxonomy, retry/recovery, playback, settings)
 - [x] 3. `AppFlow.md` — User Journey & Architecture Flow
 - [x] 4. `Design.md` — Design System & UI/UX Guidelines
-- [x] 5. `Schema.md` — Database Schema & Relations
-- [x] 6. `ImplementationPlan.md` — Phased Roadmap
-- [x] 7. `Tracker.md` — The Task Board
-- [/] 8. `Rules.md` — AI Coding Guardrails
+- [x] 5. `Schema.md` — Database Schema & Relations (rewritten to match the actual v2 DDL + migrations)
+- [x] 6. `ImplementationPlan.md` — Phased Roadmap (P4.2 complete; P5 delivery phase added)
+- [x] 7. `Tracker.md` — The Task Board (this file, updated to post-Phase-10 state)
+- [x] 8. `Rules.md` — AI Coding Guardrails
 
 ### 2.2 Core Engine & Domain Layer
 - [x] Create `MediaInfo`, `MediaFormat`, `DownloadJob`, `JobState` domain models
 - [x] Implement `MediaProvider` interface & `ProviderRegistry`
-- [x] Implement `DirectUrlProvider` with HEAD probes & MIME detection
-- [x] Implement `SpotifyMetadataProvider` using unauthenticated oEmbed
-- [x] Implement `DownloadEngine` with HTTP Range resume & speed measurement
-- [x] Implement `StorageManager` with scoped storage & `.part` staging
+- [x] Implement `DirectUrlProvider` with HEAD probe → ranged-GET fallback, filename derivation, error taxonomy
+- [x] Implement `SpotifyMetadataProvider` using unauthenticated oEmbed (metadata-only)
+- [x] Implement `DownloadEngine` with HTTP Range resume, manual redirects, transient/permanent error split
+- [x] Implement `StorageManager` with `downloads/audio|video|other`, traversal-proof sanitization, `.part` staging
 - [x] Implement `MediaProcessor` seam for post-processing
-- [x] Implement `DownloadManager` orchestrator
+- [x] Implement `DownloadManager` orchestrator with recovery, event-driven refresh, concurrency limiter
 
 ### 2.3 Data Layer & Persistence
 - [x] Implement `SmusicDatabase` with SQLiteOpenHelper, WAL, and job/library tables
-- [x] Implement `MediaDownloadWorker` with foreground service & notification updates
-- [x] Add stale record cleanup on library initialization
+- [x] Implement `DatabaseSchema` (pure-Kotlin DDL + additive v1→v2 migrations, SQLite-driver tested)
+- [x] Implement `MediaDownloadWorker` with foreground service, concurrency gate, retry policy, integrity + sniffing
+- [x] Add stale record cleanup and orphan-file library recovery
 
 ### 2.4 Presentation & UI Layer
 - [x] Implement `SmusicTheme` dark design system
-- [x] Implement `HomeScreen` with URL probe, format picker & storage selectors
-- [x] Implement `DownloadsScreen` with active queue progress and actions
-- [x] Implement `LibraryScreen` with search, filter, share, and delete
+- [x] Implement `HomeScreen` with URL probe, format picker & storage selectors, `Failed` analysis state
+- [x] Implement `DownloadsScreen` with sectioned queue (active/queued/completed/failed), share, retry, delete
+- [x] Implement `LibraryScreen` with search (title/artist/album/playlist/filename), favorites, play counts
 - [x] Implement `SmusicPlaybackService` with AndroidX Media3 ExoPlayer
+- [x] Implement `PlayerController`, `PlayerScreen`, and `MiniPlayer` with persisted resume/shuffle/repeat
+- [x] Implement `SettingsScreen` (downloads, playback, storage, about) bound to `AppSettings`
 
 ### 2.5 Release & Deployment
-- [/] Deprecate/remove conflicting v0.1.0 legacy data files (`app/src/main/java/com/smusic/app/data/*.kt` root files)
-- [ ] Version bump `versionCode = 2`, `versionName = "0.2.0"` in `app/build.gradle.kts`
-- [ ] Verify `.gitignore` rules (ensure `local.properties` and local SDK configs are ignored)
-- [ ] Stage and commit all files to git
+- [x] Deprecate/remove conflicting v0.1.0 legacy data files (superseded by `domain/` + `data/` layout)
+- [x] Version bump `versionCode = 2`, `versionName = "0.2.0"` in `app/build.gradle.kts`
+- [x] Verify `.gitignore` rules (`local.properties`, build caches incl. `.kotlin/`)
+- [x] Verify `./gradlew test` (71 tests), `./gradlew assembleDebug` (APK), `./gradlew lint` (0 errors)
+- [x] Stage and commit all files to git
 - [ ] Push to `origin/main` on GitHub
 - [ ] Publish GitHub Release `v0.2.0` with changelog and notes
 
@@ -53,6 +57,7 @@
 
 | ID | Severity | Description | Status | Resolution / Action |
 |---|---|---|---|---|
-| **BUG-001** | Medium | Duplicate class/type conflict between old `data/MediaModels.kt` and new `domain/model/*` | [/] In Progress | Clean up legacy root files in `app/src/main/java/com/smusic/app/data/` |
-| **BUG-002** | Low | Network timeouts when downloading Gradle dependencies under unstable connectivity | Mitigated | Offline-first / local SDK configured in `C:\android-sdk` |
+| **BUG-001** | Medium | Duplicate class/type conflict between old `data/MediaModels.kt` and new `domain/model/*` | Resolved | Legacy root files removed; `DownloadEngineTest` replaced `DirectMediaDownloaderTest` |
+| **BUG-002** | Low | Gradle/Kotlin daemon OOM on low-memory machines ("daemon disappeared unexpectedly") | Resolved | `gradle.properties` pins `-Xmx1024m` + in-process Kotlin compilation |
 | **BUG-003** | Low | Ensure `local.properties` does not get checked into git repository | Verified | Ignore verified in `.gitignore` |
+| **BUG-004** | Low | JUnit rejects non-void test methods (`InvalidTestClassError`) | Resolved | `DownloadConcurrencyTest` bodies wrapped in `runBlocking` instead of expression form |

@@ -51,5 +51,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.5.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // Real SQLite driver for schema/migration unit tests (Apache-2.0).
+    testImplementation("org.xerial:sqlite-jdbc:3.47.1.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

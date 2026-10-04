@@ -36,9 +36,13 @@ data class MediaInfo(
     val fileSize: String,
     val mediaType: MediaType,
     val originalUrl: String,
+    /** Server- or URL-derived filename (with extension) when the source exposes one. */
+    val fileName: String? = null,
     val thumbnail: String? = null,
     val formats: List<MediaFormat> = emptyList(),
     val metadata: TrackMetadata? = null,
+    /** Whether the source advertised HTTP range support (resume), when known. */
+    val supportsRangeRequests: Boolean? = null,
     val isDownloadable: Boolean = true
 )
 

@@ -4,25 +4,41 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.smusic.app.data.database.LibraryItem
+import com.smusic.app.data.settings.AppSettings
+import com.smusic.app.domain.library.LibrarySearch
 import com.smusic.app.domain.manager.DownloadManager
 import com.smusic.app.domain.model.AnalysisResult
 import com.smusic.app.domain.model.DownloadDestination
 import com.smusic.app.domain.model.DownloadJob
 import com.smusic.app.domain.model.MediaFormat
-import com.smusic.app.domain.model.MediaInfo
 import com.smusic.app.domain.model.StorageCategory
-import kotlinx.coroutines.Dispatchers
+import com.smusic.app.domain.player.PlayerController
+import com.smusic.app.domain.player.PlayerState
+import com.smusic.app.domain.storage.StorageUsage
+import java.io.File
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(FlowPreview::class)
 class SmusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val downloadManager = DownloadManager(application)
+    private val settings: AppSettings get() = downloadManager.settings
+
+    // --- Playback ---
+
+    val playerController = PlayerController(application, settings)
+
+    val playerState: StateFlow<PlayerState> = playerController.state
+
+    // --- Analysis ---
 
     private val _url = MutableStateFlow("")
     val url: StateFlow<String> = _url.asStateFlow()
@@ -39,26 +55,46 @@ class SmusicViewModel(application: Application) : AndroidViewModel(application) 
     private val _selectedCategory = MutableStateFlow(StorageCategory.MUSIC)
     val selectedCategory: StateFlow<StorageCategory> = _selectedCategory.asStateFlow()
 
+    // --- Library ---
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    /** Debounced so filtering runs once the user pauses typing, not per keystroke. */
+    private val debouncedQuery = _searchQuery.debounce(SEARCH_DEBOUNCE_MS)
 
     val queue: StateFlow<List<DownloadJob>> = downloadManager.queueFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val libraryLoaded: StateFlow<Boolean> = downloadManager.libraryLoaded
+
     val library: StateFlow<List<LibraryItem>> = combine(
         downloadManager.libraryFlow,
-        _searchQuery
+        debouncedQuery
     ) { items, query ->
-        if (query.isBlank()) {
-            items
-        } else {
-            items.filter {
-                it.title.contains(query, ignoreCase = true) ||
-                        it.creator.contains(query, ignoreCase = true) ||
-                        it.album.contains(query, ignoreCase = true)
-            }
-        }
+        LibrarySearch.filter(items, query)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // --- Settings ---
+
+    val defaultCategory: StateFlow<StorageCategory> = settings.defaultCategory
+    val wifiOnly: StateFlow<Boolean> = settings.wifiOnly
+    val maxConcurrent: StateFlow<Int> = settings.maxConcurrent
+    val autoRetry: StateFlow<Boolean> = settings.autoRetry
+    val autoplayNext: StateFlow<Boolean> = settings.autoplayNext
+    val resumePlayback: StateFlow<Boolean> = settings.resumePlayback
+    val shuffleDefault: StateFlow<Boolean> = settings.shuffleDefault
+    val repeatDefault: StateFlow<AppSettings.RepeatDefault> = settings.repeatDefault
+
+    private val _storageUsage = MutableStateFlow<StorageUsage?>(null)
+    val storageUsage: StateFlow<StorageUsage?> = _storageUsage.asStateFlow()
+
+    init {
+        playerController.connect()
+        _selectedCategory.value = settings.getDefaultCategory()
+    }
+
+    // --- Actions: analysis ---
 
     fun setUrl(value: String) {
         _url.value = value
@@ -103,38 +139,99 @@ class SmusicViewModel(application: Application) : AndroidViewModel(application) 
         val format = _selectedFormat.value ?: return
 
         val destination = DownloadDestination(category = _selectedCategory.value)
-        downloadManager.enqueueDownload(
-            media = analysis.media,
-            format = format,
-            destination = destination
-        )
+        viewModelScope.launch {
+            downloadManager.enqueueDownload(
+                media = analysis.media,
+                format = format,
+                destination = destination
+            )
+        }
     }
 
-    fun cancelJob(jobId: String) {
-        downloadManager.cancelJob(jobId)
+    // --- Actions: queue ---
+
+    fun cancelJob(jobId: String) = downloadManager.cancelJob(jobId)
+
+    fun retryJob(jobId: String) = downloadManager.retryJob(jobId)
+
+    fun removeJob(jobId: String) = downloadManager.removeJob(jobId)
+
+    fun clearCompletedJobs() = downloadManager.clearCompleted()
+
+    // --- Actions: library ---
+
+    fun toggleFavorite(itemId: String) = downloadManager.toggleFavorite(itemId)
+
+    fun deleteLibraryItem(itemId: String) = downloadManager.deleteLibraryItem(itemId)
+
+    /** Starts playback of [item] with the full library as the queue. */
+    fun playItem(item: LibraryItem) {
+        val all = downloadManager.libraryFlow.value
+        val playlist = if (all.any { it.id == item.id }) all else listOf(item)
+        val start = playlist.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+        playerController.play(playlist, start)
+        downloadManager.recordPlay(item.id)
     }
 
-    fun retryJob(jobId: String) {
-        downloadManager.retryJob(jobId)
+    /** Plays the library item (or a raw file) at [path] — used by Downloads. */
+    fun playItemByPath(path: String) {
+        val item = downloadManager.libraryFlow.value.firstOrNull { it.localPath == path }
+            ?: LibraryItem(
+                id = path,
+                title = File(path).nameWithoutExtension,
+                creator = "Saved media",
+                localPath = path
+            )
+        playItem(item)
     }
 
-    fun removeJob(jobId: String) {
-        downloadManager.removeJob(jobId)
+    fun togglePlayPause() = playerController.togglePlayPause()
+    fun seekTo(positionMs: Long) = playerController.seekTo(positionMs)
+    fun seekNext() = playerController.seekNext()
+    fun seekPrevious() = playerController.seekPrevious()
+    fun toggleShuffle() = playerController.setShuffle(!playerController.state.value.shuffleEnabled)
+    fun cycleRepeatMode() = playerController.cycleRepeatMode()
+    fun dismissPlayerError() = playerController.dismissError()
+
+    // --- Actions: settings ---
+
+    fun setDefaultCategory(category: StorageCategory) = settings.setDefaultCategory(category)
+    fun setWifiOnly(enabled: Boolean) = settings.setWifiOnly(enabled)
+    fun setMaxConcurrent(value: Int) = settings.setMaxConcurrent(value)
+    fun setAutoRetry(enabled: Boolean) = settings.setAutoRetry(enabled)
+    fun setAutoplayNext(enabled: Boolean) = settings.setAutoplayNext(enabled)
+    fun setResumePlayback(enabled: Boolean) = settings.setResumePlayback(enabled)
+    fun setShuffleDefault(enabled: Boolean) = settings.setShuffleDefault(enabled)
+    fun setRepeatDefault(mode: AppSettings.RepeatDefault) = settings.setRepeatDefault(mode)
+
+    fun refreshStorageUsage() {
+        viewModelScope.launch {
+            _storageUsage.value = downloadManager.storageUsage()
+        }
     }
 
-    fun clearCompletedJobs() {
+    fun clearTemporaryFiles() {
+        viewModelScope.launch {
+            downloadManager.clearTemporaryFiles()
+            refreshStorageUsage()
+        }
+    }
+
+    fun clearDownloadHistory() {
         downloadManager.clearCompleted()
-    }
-
-    fun toggleFavorite(itemId: String) {
-        downloadManager.toggleFavorite(itemId)
-    }
-
-    fun deleteLibraryItem(itemId: String) {
-        downloadManager.deleteLibraryItem(itemId)
+        refreshStorageUsage()
     }
 
     fun refreshAll() {
         downloadManager.refreshState()
+    }
+
+    override fun onCleared() {
+        playerController.release()
+        super.onCleared()
+    }
+
+    companion object {
+        private const val SEARCH_DEBOUNCE_MS = 200L
     }
 }

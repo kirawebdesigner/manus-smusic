@@ -15,6 +15,7 @@ This document records the open-source libraries, frameworks, references, and lic
 | **AndroidX Core KTX** (`core-ktx`, `activity-compose`) | 1.15.0 / 1.10.0 | Apache-2.0 | [AndroidX Core](https://developer.android.com/jetpack/androidx/releases/core) | Kotlin extensions and ComponentActivity Compose integration. |
 | **OkHttp MockWebServer** | 4.12.0 | Apache-2.0 | [square/okhttp](https://github.com/square/okhttp) | Controlled HTTP server for unit and integration testing of range requests and download streaming. |
 | **JUnit 4** | 4.13.2 | EPL-1.0 | [junit-team/junit4](https://github.com/junit-team/junit4) | Unit testing framework. |
+| **xerial SQLite JDBC** (test-only) | 3.47.1.0 | Apache-2.0 | [xerial/sqlite-jdbc](https://github.com/xerial/sqlite-jdbc) | Real SQLite driver for unit tests of the on-device schema DDL and v1→v2 migrations (`DatabaseSchemaTest`). Test scope only; not bundled in the APK. |
 
 ---
 

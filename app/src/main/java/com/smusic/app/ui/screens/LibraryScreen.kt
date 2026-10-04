@@ -72,6 +72,7 @@ fun LibraryScreen(
     onOpenPlayer: (LibraryItem) -> Unit
 ) {
     val library by viewModel.library.collectAsState()
+    val libraryLoaded by viewModel.libraryLoaded.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     var activeFilter by remember { mutableStateOf(LibraryFilter.ALL) }
     val context = LocalContext.current
@@ -164,8 +165,25 @@ fun LibraryScreen(
             }
         }
 
-        // Media Items List
-        if (filteredItems.isEmpty()) {
+        // Media Items List — loading, empty, or content
+        if (!libraryLoaded) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 2.5.dp,
+                        color = Accent
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Reading your library…", color = Muted, fontSize = 13.sp)
+                }
+            }
+        } else if (filteredItems.isEmpty()) {
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Panel),
@@ -180,9 +198,16 @@ fun LibraryScreen(
                     ) {
                         Icon(Icons.Default.MusicNote, contentDescription = null, tint = Muted, modifier = Modifier.size(36.dp))
                         Spacer(Modifier.height(10.dp))
-                        Text("No matching files found", fontWeight = FontWeight.SemiBold, color = Ink)
                         Text(
-                            "Download items from Home or clear search filters to view your saved collection.",
+                            if (searchQuery.isNotBlank()) "No matching files found" else "Your library is empty",
+                            fontWeight = FontWeight.SemiBold,
+                            color = Ink
+                        )
+                        Text(
+                            if (searchQuery.isNotBlank())
+                                "Try a different search, or clear the filters to see your saved collection."
+                            else
+                                "Downloaded media appears here automatically — start from a direct link on Home.",
                             color = Muted,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(top = 4.dp),
@@ -198,6 +223,7 @@ fun LibraryScreen(
                     onPlay = { onOpenPlayer(item) },
                     onToggleFavorite = { viewModel.toggleFavorite(item.id) },
                     onDelete = { viewModel.deleteLibraryItem(item.id) },
+                    modifier = Modifier.animateItem(),
                     onShare = {
                         val file = File(item.localPath)
                         if (file.exists()) {
@@ -226,12 +252,13 @@ private fun FullLibraryCard(
     onPlay: () -> Unit,
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Panel),
         shape = RoundedCornerShape(18.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .border(1.dp, PanelBorder, RoundedCornerShape(18.dp))
     ) {
@@ -263,10 +290,21 @@ private fun FullLibraryCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val metadata = buildString {
+                    append(item.creator)
+                    if (item.readableSize.isNotBlank()) append(" · ${item.readableSize}")
+                    if (item.durationMs > 0) {
+                        append(" · ")
+                        append(com.smusic.app.domain.util.Formatters.formatTime(item.durationMs))
+                    }
+                    if (item.playCount > 0) append(" · ${item.playCount} plays")
+                }
                 Text(
-                    text = "${item.creator} · ${item.readableSize}",
+                    text = metadata,
                     color = Muted,
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             IconButton(onClick = onToggleFavorite) {

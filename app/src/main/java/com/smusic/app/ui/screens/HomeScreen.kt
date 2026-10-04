@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
@@ -199,6 +200,9 @@ fun HomeScreen(
         if (analysisResult != null) {
             item {
                 when (val result = analysisResult) {
+                    // Unreachable: the enclosing `if (analysisResult != null)` guards this block,
+                    // but Kotlin requires exhaustiveness over the nullable subject.
+                    null -> Unit
                     is AnalysisResult.Invalid -> {
                         Card(
                             colors = CardDefaults.cardColors(containerColor = ErrorContainer),
@@ -209,6 +213,35 @@ fun HomeScreen(
                                 Icon(Icons.Default.Info, contentDescription = null, tint = ErrorRed)
                                 Spacer(Modifier.width(12.dp))
                                 Text(result.message, color = Ink, fontSize = 14.sp)
+                            }
+                        }
+                    }
+
+                    is AnalysisResult.Failed -> {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = ErrorContainer),
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Info, contentDescription = null, tint = ErrorRed)
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(result.error.title, fontWeight = FontWeight.SemiBold, color = Ink)
+                                }
+                                Text(result.error.message, color = Muted, fontSize = 13.sp)
+                                Button(
+                                    onClick = viewModel::analyze,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = PanelHover,
+                                        contentColor = Accent
+                                    )
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Try again", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
                             }
                         }
                     }
@@ -296,24 +329,53 @@ fun HomeScreen(
                                     Column(Modifier.weight(1f)) {
                                         Text(result.media.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text("${result.media.uploader} · ${result.media.fileSize}", color = Muted, fontSize = 12.sp)
+                                        result.media.supportsRangeRequests?.let { resumable ->
+                                            Text(
+                                                text = if (resumable) "Resumable download · range requests supported"
+                                                    else "Single-stream download",
+                                                color = Muted,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
                                     }
                                 }
 
-                                // Format Picker
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        text = "SELECT FORMAT & QUALITY",
-                                        color = Muted,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 1.4.sp
-                                    )
-                                    result.formats.forEach { format ->
-                                        FormatRowItem(
-                                            format = format,
-                                            isSelected = selectedFormat == format,
-                                            onClick = { viewModel.selectFormat(format) }
+                                // Format selection — only when the source offers a real choice.
+                                if (result.formats.size > 1) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(
+                                            text = "SELECT FORMAT & QUALITY",
+                                            color = Muted,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.4.sp
                                         )
+                                        result.formats.forEach { format ->
+                                            FormatRowItem(
+                                                format = format,
+                                                isSelected = selectedFormat == format,
+                                                onClick = { viewModel.selectFormat(format) }
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    // One format: show what the source provides, no fake picker.
+                                    result.formats.firstOrNull()?.let { format ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text(
+                                                text = "FORMAT",
+                                                color = Muted,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                letterSpacing = 1.4.sp
+                                            )
+                                            FormatRowItem(
+                                                format = format,
+                                                isSelected = true,
+                                                onClick = {}
+                                            )
+                                        }
                                     }
                                 }
 

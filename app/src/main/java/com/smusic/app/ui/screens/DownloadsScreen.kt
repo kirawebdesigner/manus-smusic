@@ -1,11 +1,13 @@
 package com.smusic.app.ui.screens
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,12 +30,14 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -42,14 +46,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.smusic.app.SmusicViewModel
 import com.smusic.app.domain.model.DownloadJob
-import com.smusic.app.domain.model.JobState
 import com.smusic.app.domain.model.MediaType
+import com.smusic.app.ui.DownloadUiModel
 import com.smusic.app.ui.theme.Accent
 import com.smusic.app.ui.theme.AccentDark
 import com.smusic.app.ui.theme.ErrorRed
@@ -59,23 +65,26 @@ import com.smusic.app.ui.theme.Panel
 import com.smusic.app.ui.theme.PanelBorder
 import com.smusic.app.ui.theme.PanelHover
 import com.smusic.app.ui.theme.SuccessGreen
+import com.smusic.app.domain.util.Formatters
+import java.io.File
+import java.text.DateFormat
+import java.util.Date
 
+/**
+ * Queue overview grouped into Active / Queued / Failed / Completed sections.
+ * Every action shown matches the job's state, progress figures are real bytes
+ * from the worker, and speed/ETA come from the engine's smoothed measurements.
+ */
 @Composable
 fun DownloadsScreen(
     viewModel: SmusicViewModel,
     onPlayCompleted: (String) -> Unit
 ) {
     val queue by viewModel.queue.collectAsState()
-
-    val downloadingJobs = queue.filter {
-        it.state == JobState.DOWNLOADING || it.state == JobState.PROCESSING || it.state == JobState.WAITING
-    }
-    val queuedJobs = queue.filter { it.state == JobState.QUEUED || it.state == JobState.ANALYZING }
-    val completedJobs = queue.filter { it.state == JobState.COMPLETED }
-    val failedJobs = queue.filter { it.state == JobState.FAILED || it.state == JobState.CANCELLED }
+    val sections = DownloadUiModel.sections(queue)
 
     LazyColumn(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 24.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
         modifier = Modifier.fillMaxSize()
     ) {
@@ -95,76 +104,76 @@ fun DownloadsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Active Queue",
+                        text = "Downloads",
                         fontSize = 30.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Ink
                     )
                 }
-                if (completedJobs.isNotEmpty()) {
+                if (sections.completed.isNotEmpty()) {
                     IconButton(onClick = viewModel::clearCompletedJobs) {
-                        Icon(Icons.Default.ClearAll, contentDescription = "Clear Completed", tint = Muted)
+                        Icon(
+                            Icons.Default.ClearAll,
+                            contentDescription = "Clear completed entries",
+                            tint = Muted
+                        )
                     }
                 }
             }
         }
 
-        // Section: Active Downloading
-        if (downloadingJobs.isNotEmpty()) {
-            item {
-                SectionTitle("DOWNLOADING (${downloadingJobs.size})")
-            }
-            items(downloadingJobs, key = { it.id }) { job ->
+        // Section: Active
+        if (sections.active.isNotEmpty()) {
+            item { SectionTitle("DOWNLOADING (${sections.active.size})") }
+            items(sections.active, key = { "active_${it.id}" }) { job ->
                 ActiveDownloadCard(
                     job = job,
-                    onCancel = { viewModel.cancelJob(job.id) }
+                    onCancel = { viewModel.cancelJob(job.id) },
+                    modifier = Modifier.animateItem()
                 )
             }
         }
 
         // Section: Queued
-        if (queuedJobs.isNotEmpty()) {
-            item {
-                SectionTitle("QUEUED (${queuedJobs.size})")
-            }
-            items(queuedJobs, key = { it.id }) { job ->
+        if (sections.queued.isNotEmpty()) {
+            item { SectionTitle("QUEUED (${sections.queued.size})") }
+            items(sections.queued, key = { "queued_${it.id}" }) { job ->
                 QueuedJobCard(
                     job = job,
-                    onRemove = { viewModel.removeJob(job.id) }
+                    onRemove = { viewModel.removeJob(job.id) },
+                    modifier = Modifier.animateItem()
                 )
             }
         }
 
         // Section: Failed / Cancelled
-        if (failedJobs.isNotEmpty()) {
-            item {
-                SectionTitle("FAILED / CANCELLED (${failedJobs.size})")
-            }
-            items(failedJobs, key = { it.id }) { job ->
+        if (sections.failed.isNotEmpty()) {
+            item { SectionTitle("NEEDS ATTENTION (${sections.failed.size})") }
+            items(sections.failed, key = { "failed_${it.id}" }) { job ->
                 FailedJobCard(
                     job = job,
                     onRetry = { viewModel.retryJob(job.id) },
-                    onDelete = { viewModel.removeJob(job.id) }
+                    onDelete = { viewModel.removeJob(job.id) },
+                    modifier = Modifier.animateItem()
                 )
             }
         }
 
         // Section: Completed
-        if (completedJobs.isNotEmpty()) {
-            item {
-                SectionTitle("COMPLETED (${completedJobs.size})")
-            }
-            items(completedJobs, key = { it.id }) { job ->
+        if (sections.completed.isNotEmpty()) {
+            item { SectionTitle("COMPLETED (${sections.completed.size})") }
+            items(sections.completed, key = { "done_${it.id}" }) { job ->
                 CompletedJobCard(
                     job = job,
                     onPlay = { job.localPath?.let(onPlayCompleted) },
-                    onDelete = { viewModel.removeJob(job.id) }
+                    onDelete = { viewModel.removeJob(job.id) },
+                    modifier = Modifier.animateItem()
                 )
             }
         }
 
         // Empty state
-        if (queue.isEmpty()) {
+        if (sections.isEmpty) {
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = Panel),
@@ -188,7 +197,8 @@ fun DownloadsScreen(
                         Spacer(Modifier.height(12.dp))
                         Text("Queue is empty", fontWeight = FontWeight.SemiBold, color = Ink, fontSize = 16.sp)
                         Text(
-                            "Any media link you download will show live byte progress, download speed, and background execution here.",
+                            "Downloads you start appear here with live byte progress, speed, " +
+                                "and background execution — even if you close the app.",
                             color = Muted,
                             fontSize = 13.sp,
                             modifier = Modifier.padding(top = 4.dp),
@@ -213,14 +223,41 @@ private fun SectionTitle(title: String) {
 }
 
 @Composable
+private fun TypeBadge(mediaType: MediaType, size: Int = 42) {
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(PanelHover),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            if (mediaType == MediaType.AUDIO) "♪" else "▶",
+            color = Accent,
+            fontSize = (size / 2).sp
+        )
+    }
+}
+
+@Composable
 private fun ActiveDownloadCard(
     job: DownloadJob,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = job.progress.coerceIn(0f, 1f),
+        label = "download_progress"
+    )
+    val eta = Formatters.formatEta(
+        remainingBytes = (job.totalBytes - job.downloadedBytes).coerceAtLeast(0L),
+        speedBytesPerSecond = job.speedBytesPerSecond
+    )
+
     Card(
         colors = CardDefaults.cardColors(containerColor = Panel),
         shape = RoundedCornerShape(18.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .border(1.dp, PanelBorder, RoundedCornerShape(18.dp))
     ) {
@@ -229,19 +266,7 @@ private fun ActiveDownloadCard(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(PanelHover),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        if (job.mediaInfo.mediaType == MediaType.AUDIO) "♪" else "▶",
-                        color = Accent,
-                        fontSize = 20.sp
-                    )
-                }
+                TypeBadge(job.mediaInfo.mediaType)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -258,48 +283,47 @@ private fun ActiveDownloadCard(
                     )
                 }
                 IconButton(onClick = onCancel) {
-                    Icon(Icons.Default.Cancel, contentDescription = "Cancel", tint = Muted)
+                    Icon(Icons.Default.Cancel, contentDescription = "Cancel download", tint = Muted)
                 }
             }
 
-            // Real progress bar
-            Box(
+            LinearProgressIndicator(
+                progress = { animatedProgress },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
-                    .clip(CircleShape)
-                    .background(PanelBorder)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(job.progress.coerceIn(0f, 1f))
-                        .height(6.dp)
-                        .background(Accent)
-                )
-            }
+                    .clip(CircleShape),
+                color = Accent,
+                trackColor = PanelBorder,
+                drawStopIndicator = {}
+            )
 
-            // Metrics row: Speed, Percent, Bytes
+            // Metrics row: bytes, ETA, speed
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 val percent = (job.progress * 100).toInt()
-                val speedMb = "%.1f MB/s".format(job.speedBytesPerSecond / 1_048_576.0)
-                val downloadedMb = "%.1f MB".format(job.downloadedBytes / 1_048_576.0)
-                val totalMb = if (job.totalBytes > 0) "%.1f MB".format(job.totalBytes / 1_048_576.0) else "..."
+                val downloaded = Formatters.formatBytes(job.downloadedBytes)
+                val total = if (job.totalBytes > 0) Formatters.formatBytes(job.totalBytes) else "unknown size"
 
                 Text(
-                    text = "$percent% · $downloadedMb of $totalMb",
+                    text = "$percent% · $downloaded of $total",
                     color = Ink,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
-                Text(
-                    text = speedMb,
-                    color = Accent,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = Formatters.formatSpeed(job.speedBytesPerSecond),
+                        color = Accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (eta != null) {
+                        Text(text = eta, color = Muted, fontSize = 11.sp)
+                    }
+                }
             }
         }
     }
@@ -308,12 +332,13 @@ private fun ActiveDownloadCard(
 @Composable
 private fun QueuedJobCard(
     job: DownloadJob,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Panel),
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .border(1.dp, PanelBorder, RoundedCornerShape(16.dp))
     ) {
@@ -325,10 +350,11 @@ private fun QueuedJobCard(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(job.mediaInfo.title, fontWeight = FontWeight.Medium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Waiting in queue · ${job.selectedFormat.container}", color = Muted, fontSize = 12.sp)
+                val status = job.errorMessage ?: "Waiting in queue · ${job.selectedFormat.container}"
+                Text(status, color = Muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             IconButton(onClick = onRemove) {
-                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Muted)
+                Icon(Icons.Default.Delete, contentDescription = "Remove from queue", tint = Muted)
             }
         }
     }
@@ -338,14 +364,15 @@ private fun QueuedJobCard(
 private fun FailedJobCard(
     job: DownloadJob,
     onRetry: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Panel),
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .border(1.dp, PanelBorder, RoundedCornerShape(16.dp))
+            .border(1.dp, ErrorRed.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -355,13 +382,19 @@ private fun FailedJobCard(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(job.mediaInfo.title, fontWeight = FontWeight.Medium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(job.errorMessage ?: "Download stopped", color = ErrorRed, fontSize = 12.sp)
+                Text(
+                    text = job.errorMessage ?: "Download stopped",
+                    color = ErrorRed,
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             IconButton(onClick = onRetry) {
-                Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = Accent)
+                Icon(Icons.Default.Refresh, contentDescription = "Retry download", tint = Accent)
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Muted)
+                Icon(Icons.Default.Delete, contentDescription = "Remove entry", tint = Muted)
             }
         }
     }
@@ -371,12 +404,17 @@ private fun FailedJobCard(
 private fun CompletedJobCard(
     job: DownloadJob,
     onPlay: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val file = job.localPath?.let { File(it) }
+    val isPlayable = file?.exists() == true
+
     Card(
         colors = CardDefaults.cardColors(containerColor = Panel),
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .border(1.dp, PanelBorder, RoundedCornerShape(16.dp))
     ) {
@@ -388,13 +426,49 @@ private fun CompletedJobCard(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(job.mediaInfo.title, fontWeight = FontWeight.Medium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Saved to storage · ${job.selectedFormat.container}", color = Muted, fontSize = 12.sp)
+                val completedAt = job.completedAt
+                val details = buildString {
+                    append(job.selectedFormat.container)
+                    append(" · ")
+                    append(
+                        if (job.totalBytes > 0) Formatters.formatBytes(job.totalBytes)
+                        else job.selectedFormat.fileSize
+                    )
+                    if (completedAt != null) {
+                        append(" · ")
+                        append(DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(completedAt)))
+                    }
+                }
+                Text(details, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onClick = onPlay) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = Accent)
+            IconButton(onClick = onPlay, enabled = isPlayable) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = if (isPlayable) Accent else Muted)
+            }
+            IconButton(onClick = {
+                file?.let { target ->
+                    runCatching {
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            target
+                        )
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = job.selectedFormat.mimeType ?: "application/octet-stream"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share ${job.mediaInfo.title}"))
+                    }
+                }
+            }, enabled = isPlayable) {
+                Icon(
+                    Icons.Default.Share,
+                    contentDescription = "Share file",
+                    tint = if (isPlayable) Muted else PanelBorder
+                )
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Muted)
+                Icon(Icons.Default.Delete, contentDescription = "Remove entry", tint = Muted)
             }
         }
     }

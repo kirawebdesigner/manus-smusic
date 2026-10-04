@@ -1,5 +1,7 @@
 package com.smusic.app.domain.model
 
+import com.smusic.app.domain.provider.ProviderError
+
 sealed interface AnalysisResult {
     data class Success(
         val media: MediaInfo,
@@ -17,5 +19,10 @@ sealed interface AnalysisResult {
 
     data class Invalid(
         val message: String
+    ) : AnalysisResult
+
+    /** Analysis failed with a categorized, user-facing [ProviderError]. */
+    data class Failed(
+        val error: ProviderError
     ) : AnalysisResult
 }
