@@ -73,3 +73,11 @@ Status: **Implemented and verified.** `./gradlew test` 71/71 · `./gradlew assem
 - [x] All ten phases implemented and verified
 - [x] Committed on `main`
 - [ ] Push to `origin` and publish the `v0.2.0` GitHub release (per release checklist)
+
+## Post-v0.2.0 Phase 6 — Discovery foundation (in progress)
+
+- Added source-neutral discovery contracts for text searches, pasted URLs, playlist entries, provider capability boundaries, and explicit result statuses.
+- Added deterministic duplicate identity matching across ISRC, source IDs, canonical URLs, normalized creator/title, duration tolerance, and version markers.
+- Added tests for repeated playlist entries, cross-source matches, different versions, tracking-parameter cleanup, and uncertain duration review.
+- Added `docs/SourceIntegrationResearch.md` documenting the YouTube/Spotify adapter decision and licensing review.
+- Not yet enabled: YouTube search/playlist extraction or Spotify full playlist enumeration. Those require a production-ready adapter and, for Spotify Web API metadata, a user-configured PKCE client ID.

@@ -119,6 +119,17 @@ with a user-facing message).
 - **Protocol:** Public unauthenticated oEmbed JSON parsing. Extracts title, artist/author, thumbnail artwork URL, and provider name.
 - **Contract:** Returns `AnalysisResult.MetadataOnly` with track metadata to prevent unauthorized streams while enabling structured metadata queries.
 
+### 4.3 Discovery and duplicate contracts (Phase 6)
+- `DiscoveryQuery` distinguishes pasted URLs from text searches.
+- `DiscoveryProvider` separates search/playlist resolution from media acquisition; a provider must not advertise a capability it cannot execute.
+- `DiscoveryItem` carries source ID, provider ID, normalized metadata inputs, duration, ISRC when available, and an explicit `TrackVersion`.
+- `PlaylistEntry` preserves playlist position even when an item is unavailable or skipped as a duplicate.
+- `DuplicateResolver` checks ISRC, provider/source ID, canonical URL, normalized creator/title, duration tolerance, and version markers in that order.
+- Decisions are explicit: `NEW`, `DUPLICATE_EXISTING`, `DUPLICATE_QUEUED`, `DIFFERENT_VERSION`, `NEEDS_REVIEW`, or `UNRESOLVED`.
+- Playlist membership must be stored separately from physical library files so the same file can appear in multiple playlists without duplicate downloads.
+
+YouTube search/playlist execution is not enabled in this build. Spotify full playlist enumeration requires a registered Web API client ID and PKCE authorization; oEmbed remains metadata-only.
+
 ---
 
 ## 5. Download Engine Specification

@@ -1,7 +1,7 @@
 # Task Board & Progress Tracker (Tracker) — Smusic v0.2.0
 
 ## 1. Current Sprint Focus
-**Objective:** Smusic v0.2.0 end-to-end delivery complete: provider layer, storage, schema v2, download pipeline, library, and Media3 playback are implemented and verified (`test` / `assembleDebug` / `lint` all green, 71 unit tests). Remaining: push and the `v0.2.0` GitHub release.
+**Objective:** Smusic v0.2.0 end-to-end delivery is complete and independently verified (`test` / `assembleDebug` / `lint` all green, 71 unit tests). Phase 6 now adds source-neutral discovery and duplicate-safe playlist foundations; streaming-platform adapters remain explicitly gated by dependency, credential, and reliability review.
 
 ---
 
@@ -51,6 +51,14 @@
 - [ ] Push to `origin/main` on GitHub
 - [ ] Publish GitHub Release `v0.2.0` with changelog and notes
 
+### 2.6 Discovery & Playlist Safety (Phase 6)
+- [x] Add `DiscoveryQuery`, `DiscoveryItem`, `PlaylistEntry`, `DiscoveryResult`, and `DiscoveryProvider` contracts.
+- [x] Add version-aware `DuplicateResolver` with ISRC/source ID/canonical URL/metadata matching.
+- [x] Add five duplicate and variant unit tests.
+- [ ] Add a production YouTube provider with real search and playlist expansion.
+- [ ] Add Spotify Web API PKCE integration for full playlist track metadata.
+- [ ] Add playlist/source-reference schema migration and selection UI.
+
 ---
 
 ## 3. Bug Tracking & Known Issues Log
@@ -61,3 +69,10 @@
 | **BUG-002** | Low | Gradle/Kotlin daemon OOM on low-memory machines ("daemon disappeared unexpectedly") | Resolved | `gradle.properties` pins `-Xmx1024m` + in-process Kotlin compilation |
 | **BUG-003** | Low | Ensure `local.properties` does not get checked into git repository | Verified | Ignore verified in `.gitignore` |
 | **BUG-004** | Low | JUnit rejects non-void test methods (`InvalidTestClassError`) | Resolved | `DownloadConcurrencyTest` bodies wrapped in `runBlocking` instead of expression form |
+
+## 4. Current honest limitations
+
+- Direct HTTP(S) downloads are fully implemented.
+- Spotify oEmbed metadata is available; protected Spotify audio is not downloadable.
+- YouTube search, playlist expansion, and streaming-platform download are not yet enabled.
+- No FFmpeg binary is bundled.

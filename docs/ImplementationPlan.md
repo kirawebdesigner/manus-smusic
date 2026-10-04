@@ -67,3 +67,12 @@ This roadmap outlines the phased development and upgrade of Smusic from a basic 
 - [x] **P5.7 Settings:** destination, Wi-Fi-only, concurrency, auto-retry, playback defaults, storage usage and cleanup actions, about section.
 - [x] **P5.8 Test suite:** engine (12), provider probing (15), schema/migration (5), storage (8), library search (6), UI model (6), formatters (6), media sniffer (10), concurrency (3) — 71 tests via `./gradlew test`.
 - [ ] **P5.9 Release delivery:** commit via the Freebuff Changes panel, push, and publish the `v0.2.0` GitHub release (not part of this pass).
+
+### Phase 6: Discovery, Playlists & Duplicate Safety (in progress)
+- [x] **P6.1 Discovery contracts:** source-neutral query, result, playlist-entry, status, and provider interfaces in `domain/discovery`.
+- [x] **P6.2 Duplicate identity:** ISRC/source ID/canonical URL/normalized metadata matching with version preservation and review states.
+- [x] **P6.3 Tests:** repeated playlist entries, cross-source ISRC matches, version variants, URL tracking cleanup, and uncertain-duration review.
+- [ ] **P6.4 YouTube adapter:** add only after a reviewed Android-compatible dependency or verified provider runtime supports real single-item, search, and playlist behavior.
+- [ ] **P6.5 Spotify Web API:** add PKCE-authenticated track/album/playlist metadata using a user-configured client ID; keep audio acquisition separate.
+- [ ] **P6.6 Queue/database wiring:** persist source references, playlists, playlist positions, and duplicate decisions with additive migrations.
+- [ ] **P6.7 Selection UI:** display search/playlist results, match confidence, skipped duplicates, unresolved items, and explicit user confirmation.
