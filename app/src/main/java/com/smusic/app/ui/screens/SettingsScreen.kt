@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -60,7 +62,7 @@ import com.smusic.app.ui.theme.PanelHover
  * download directory, and About shows real build metadata and licenses.
  */
 @Composable
-fun SettingsScreen(viewModel: SmusicViewModel) {
+fun SettingsScreen(viewModel: SmusicViewModel, onConnectSpotify: () -> Unit = {}) {
     val defaultCategory by viewModel.defaultCategory.collectAsState()
     val wifiOnly by viewModel.wifiOnly.collectAsState()
     val maxConcurrent by viewModel.maxConcurrent.collectAsState()
@@ -69,6 +71,7 @@ fun SettingsScreen(viewModel: SmusicViewModel) {
     val resumePlayback by viewModel.resumePlayback.collectAsState()
     val shuffleDefault by viewModel.shuffleDefault.collectAsState()
     val repeatDefault by viewModel.repeatDefault.collectAsState()
+    val spotifyConnected by viewModel.spotifyConnected.collectAsState()
     val storageUsage by viewModel.storageUsage.collectAsState()
     val queue by viewModel.queue.collectAsState()
 
@@ -181,6 +184,28 @@ fun SettingsScreen(viewModel: SmusicViewModel) {
                     selected = repeatDefault,
                     onSelect = viewModel::setRepeatDefault
                 )
+            }
+        }
+
+        // --- Source connections ---
+        item {
+            SectionHeader("SOURCE CONNECTIONS")
+            SettingsCard {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Spotify catalog", color = Ink, fontWeight = FontWeight.Medium)
+                        Text(
+                            if (spotifyConnected) "Connected for playlist metadata" else "Connect for official playlist and catalog metadata",
+                            color = Muted,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Button(
+                        onClick = onConnectSpotify,
+                        enabled = !spotifyConnected,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = AccentDark)
+                    ) { Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                }
             }
         }
 

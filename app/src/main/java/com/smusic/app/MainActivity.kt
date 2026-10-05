@@ -1,6 +1,7 @@
 package com.smusic.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -41,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,6 +98,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun SmusicApp(vm: SmusicViewModel = viewModel()) {
+    val context = LocalContext.current
     var tab by remember { mutableIntStateOf(0) }
     var playerOpen by remember { mutableStateOf(false) }
     val queue by vm.queue.collectAsState()
@@ -180,7 +183,12 @@ private fun SmusicApp(vm: SmusicViewModel = viewModel()) {
                     }
                 )
 
-                3 -> SettingsScreen(viewModel = vm)
+                3 -> SettingsScreen(
+                    viewModel = vm,
+                    onConnectSpotify = {
+                        vm.beginSpotifyConnect()?.let { context.startActivity(Intent(Intent.ACTION_VIEW, it)) }
+                    }
+                )
 
                 else -> PlayerScreen(
                     viewModel = vm,
