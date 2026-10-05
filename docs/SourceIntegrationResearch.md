@@ -13,7 +13,7 @@ Smusic keeps the clean `MediaProvider`/`DownloadManager` architecture from `5dac
 
 ### Current YouTube status
 
-No YouTube search, playlist expansion, or downloader is claimed as implemented. This is intentional: a provider must expose real metadata/formats and be reliable enough for WorkManager, rather than showing a fake format list or silently failing.
+Implemented: official YouTube Data API v3 search, single-video metadata resolution, playlist expansion with bounded results, and ISO-8601 duration parsing. The API key is read from uncommitted `local.properties` through `BuildConfig`; it is never logged or committed. This provider returns metadata only because the official Data API does not provide downloadable media streams.
 
 ## Spotify options evaluated
 
@@ -23,7 +23,7 @@ No YouTube search, playlist expansion, or downloader is claimed as implemented. 
 
 ### Current Spotify status
 
-Public oEmbed metadata is supported. Full playlist track enumeration and source matching require a configured Spotify Web API client ID and PKCE flow; no credentials are stored in source code.
+Implemented: official Web API search plus track, album, and playlist metadata resolution. The Android app uses Authorization Code with PKCE, stores access/refresh tokens only in app-private preferences, and reads the client ID from uncommitted `local.properties`. Public oEmbed metadata remains available through the existing provider. Protected Spotify audio is not downloaded.
 
 ## Adapter acceptance criteria
 
@@ -36,4 +36,4 @@ A future provider can be enabled only when it has:
 5. Unit and controlled integration tests.
 6. No user credentials, cookies, or private URLs in logs.
 
-The new `domain.discovery` contracts and duplicate resolver provide the source-neutral layer for this work.
+The `domain.discovery` contracts, duplicate resolver, `DiscoveryManager`, and existing ViewModel/UI boundary provide the source-neutral layer. The existing Home screen now routes direct URLs to the download analyzer and names/platform URLs to official discovery without moving network code into Compose.

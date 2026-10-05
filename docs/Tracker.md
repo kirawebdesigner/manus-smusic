@@ -55,8 +55,8 @@
 - [x] Add `DiscoveryQuery`, `DiscoveryItem`, `PlaylistEntry`, `DiscoveryResult`, and `DiscoveryProvider` contracts.
 - [x] Add version-aware `DuplicateResolver` with ISRC/source ID/canonical URL/metadata matching.
 - [x] Add five duplicate and variant unit tests.
-- [ ] Add a production YouTube provider with real search and playlist expansion.
-- [ ] Add Spotify Web API PKCE integration for full playlist track metadata.
+- [x] Add official YouTube Data API provider with real search, video metadata, duration parsing, and bounded playlist expansion.
+- [x] Add Spotify Web API PKCE integration for track, album, playlist metadata, and catalog search.
 - [ ] Add playlist/source-reference schema migration and selection UI.
 
 ---
@@ -74,5 +74,6 @@
 
 - Direct HTTP(S) downloads are fully implemented.
 - Spotify oEmbed metadata is available; protected Spotify audio is not downloadable.
-- YouTube search, playlist expansion, and streaming-platform download are not yet enabled.
+- YouTube search and playlist expansion are enabled when `SMUSIC_YOUTUBE_API_KEY` is configured; official APIs provide metadata, not protected media streams.
+- Spotify catalog search and playlist metadata are enabled after PKCE connection with `SMUSIC_SPOTIFY_CLIENT_ID`; protected Spotify audio is not downloaded.
 - No FFmpeg binary is bundled.

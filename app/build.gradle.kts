@@ -1,8 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+val youtubeApiKey = localProperties.getProperty("SMUSIC_YOUTUBE_API_KEY", "")
+val spotifyClientId = localProperties.getProperty("SMUSIC_SPOTIFY_CLIENT_ID", "")
 
 android {
     namespace = "com.smusic.app"
@@ -14,6 +23,8 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "0.2.0"
+        buildConfigField("String", "SMUSIC_YOUTUBE_API_KEY", "\"${youtubeApiKey.replace("\"", "\\\"")}\"")
+        buildConfigField("String", "SMUSIC_SPOTIFY_CLIENT_ID", "\"${spotifyClientId.replace("\"", "\\\"")}\"")
     }
 
     buildTypes {
@@ -28,7 +39,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 }
 
 dependencies {

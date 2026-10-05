@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smusic.app.SmusicViewModel
 import com.smusic.app.data.database.LibraryItem
+import com.smusic.app.domain.discovery.DiscoveryResult
 import com.smusic.app.domain.model.AnalysisResult
 import com.smusic.app.domain.model.MediaFormat
 import com.smusic.app.domain.model.MediaType
@@ -75,6 +76,8 @@ fun HomeScreen(
     val url by viewModel.url.collectAsState()
     val isAnalyzing by viewModel.isAnalyzing.collectAsState()
     val analysisResult by viewModel.analysisResult.collectAsState()
+    val discoveryResult by viewModel.discoveryResult.collectAsState()
+    val isDiscovering by viewModel.isDiscovering.collectAsState()
     val selectedFormat by viewModel.selectedFormat.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val library by viewModel.library.collectAsState()
@@ -166,8 +169,8 @@ fun HomeScreen(
                 )
 
                 Button(
-                    onClick = viewModel::analyze,
-                    enabled = !isAnalyzing && url.isNotBlank(),
+                    onClick = viewModel::analyzeOrDiscover,
+                    enabled = !isAnalyzing && !isDiscovering && url.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -179,21 +182,25 @@ fun HomeScreen(
                         disabledContentColor = Muted
                     )
                 ) {
-                    if (isAnalyzing) {
+                    if (isAnalyzing || isDiscovering) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp,
                             color = AccentDark
                         )
                         Spacer(Modifier.width(10.dp))
-                        Text("Probing source...", fontWeight = FontWeight.Bold)
+                        Text(if (isDiscovering) "Searching sources..." else "Probing source...", fontWeight = FontWeight.Bold)
                     } else {
                         Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Analyze Link", fontWeight = FontWeight.Bold)
+                        Text("Search / Analyze", fontWeight = FontWeight.Bold)
                     }
                 }
             }
+        }
+
+        if (discoveryResult != null) {
+            item { DiscoveryResultCard(discoveryResult!!) }
         }
 
         // Analysis Result Card

@@ -1,0 +1,3 @@
+# Copy these keys into local.properties for local builds. Never commit local.properties.
+SMUSIC_YOUTUBE_API_KEY=
+SMUSIC_SPOTIFY_CLIENT_ID=

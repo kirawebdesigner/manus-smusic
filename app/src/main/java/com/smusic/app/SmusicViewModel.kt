@@ -1,10 +1,14 @@
 package com.smusic.app
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.smusic.app.data.database.LibraryItem
+import com.smusic.app.data.auth.SpotifyAuthManager
 import com.smusic.app.data.settings.AppSettings
+import com.smusic.app.domain.discovery.DiscoveryManager
+import com.smusic.app.domain.discovery.DiscoveryResult
 import com.smusic.app.domain.library.LibrarySearch
 import com.smusic.app.domain.manager.DownloadManager
 import com.smusic.app.domain.model.AnalysisResult
@@ -31,6 +35,8 @@ class SmusicViewModel(application: Application) : AndroidViewModel(application) 
 
     private val downloadManager = DownloadManager(application)
     private val settings: AppSettings get() = downloadManager.settings
+    private val spotifyAuth = SpotifyAuthManager(application, BuildConfig.SMUSIC_SPOTIFY_CLIENT_ID)
+    private val discoveryManager = DiscoveryManager(spotifyToken = { spotifyAuth.accessToken() })
 
     // --- Playback ---
 
@@ -48,6 +54,15 @@ class SmusicViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _analysisResult = MutableStateFlow<AnalysisResult?>(null)
     val analysisResult: StateFlow<AnalysisResult?> = _analysisResult.asStateFlow()
+
+    private val _discoveryResult = MutableStateFlow<DiscoveryResult?>(null)
+    val discoveryResult: StateFlow<DiscoveryResult?> = _discoveryResult.asStateFlow()
+
+    private val _isDiscovering = MutableStateFlow(false)
+    val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
+
+    private val _spotifyConnected = MutableStateFlow(spotifyAuth.isConnected())
+    val spotifyConnected: StateFlow<Boolean> = _spotifyConnected.asStateFlow()
 
     private val _selectedFormat = MutableStateFlow<MediaFormat?>(null)
     val selectedFormat: StateFlow<MediaFormat?> = _selectedFormat.asStateFlow()
@@ -129,9 +144,35 @@ class SmusicViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /** Existing Home action: direct media uses the download analyzer; names/platform links use discovery. */
+    fun analyzeOrDiscover() {
+        val value = _url.value.trim()
+        if (value.isBlank()) return
+        val platformLink = value.contains("youtube.com", true) || value.contains("youtu.be", true) ||
+            value.contains("spotify.com", true) || value.contains("spotify.link", true)
+        if (!platformLink && (value.startsWith("http://") || value.startsWith("https://"))) {
+            analyze()
+            return
+        }
+        viewModelScope.launch {
+            _isDiscovering.value = true
+            _discoveryResult.value = discoveryManager.execute(value)
+            _isDiscovering.value = false
+        }
+    }
+
+    fun beginSpotifyConnect(): Uri? = spotifyAuth.authorizationUri()
+
+    fun handleSpotifyCallback(uri: Uri) {
+        viewModelScope.launch {
+            _spotifyConnected.value = spotifyAuth.handleCallback(uri).isSuccess
+        }
+    }
+
     fun clearAnalysis() {
         _analysisResult.value = null
         _selectedFormat.value = null
+        _discoveryResult.value = null
     }
 
     fun enqueueDownload() {

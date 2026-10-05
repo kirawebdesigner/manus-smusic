@@ -72,7 +72,7 @@ This roadmap outlines the phased development and upgrade of Smusic from a basic 
 - [x] **P6.1 Discovery contracts:** source-neutral query, result, playlist-entry, status, and provider interfaces in `domain/discovery`.
 - [x] **P6.2 Duplicate identity:** ISRC/source ID/canonical URL/normalized metadata matching with version preservation and review states.
 - [x] **P6.3 Tests:** repeated playlist entries, cross-source ISRC matches, version variants, URL tracking cleanup, and uncertain-duration review.
-- [ ] **P6.4 YouTube adapter:** add only after a reviewed Android-compatible dependency or verified provider runtime supports real single-item, search, and playlist behavior.
-- [ ] **P6.5 Spotify Web API:** add PKCE-authenticated track/album/playlist metadata using a user-configured client ID; keep audio acquisition separate.
+- [x] **P6.4 YouTube adapter:** official YouTube Data API v3 search, single-item metadata, playlist expansion, bounded results, and duration parsing; metadata-only by design.
+- [x] **P6.5 Spotify Web API:** PKCE-authenticated track/album/playlist metadata using a user-configured client ID; protected audio remains separate and unsupported.
 - [ ] **P6.6 Queue/database wiring:** persist source references, playlists, playlist positions, and duplicate decisions with additive migrations.
-- [ ] **P6.7 Selection UI:** display search/playlist results, match confidence, skipped duplicates, unresolved items, and explicit user confirmation.
+- [x] **P6.7 Selection UI:** preserve the existing Home UI and route its primary action through the ViewModel to show official discovery results without putting provider code in Compose.

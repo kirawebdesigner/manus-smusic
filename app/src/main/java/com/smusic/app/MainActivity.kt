@@ -80,6 +80,9 @@ class MainActivity : ComponentActivity() {
                 SmusicApp()
             }
         }
+        intent?.data?.takeIf { it.scheme == "smusic" && it.host == "spotify-callback" }?.let { callback ->
+            androidx.lifecycle.ViewModelProvider(this)[SmusicViewModel::class.java].handleSpotifyCallback(callback)
+        }
     }
 
     private fun requestNotificationPermissionIfNeeded() {
